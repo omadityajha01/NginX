@@ -1,0 +1,12 @@
+{
+  "domain": "localhost",
+  "http_port": 80,
+  "https_port": 443,
+  "demo": true,
+  "backends": [
+    "app1:80",
+    "app2:80",
+    "app3:80"
+  ],
+  "protocol": "http"
+}

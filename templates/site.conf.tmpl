@@ -1,0 +1,73 @@
+{{GENERATED_NOTE}}
+#
+# Inputs: domain={{DOMAIN}}  protocol={{PROTOCOL}}
+
+# ---- Backend pool (load balancing) ----
+upstream app_backend {
+    least_conn;                    # send to the backend with the fewest active connections
+{{UPSTREAM_SERVERS}}
+    keepalive 32;                  # reuse connections to backends
+}
+
+# ---- HTTP: redirect everything to HTTPS ----
+server {
+    listen 80;
+    server_name {{DOMAIN}};
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    location / {
+        return 301 https://$host{{HTTPS_PORT_SUFFIX}}$request_uri;
+    }
+}
+
+# ---- HTTPS: the real site ----
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name {{DOMAIN}};
+{{SERVER_EXTRA}}
+    ssl_certificate     /etc/nginx/certs/server.crt;
+    ssl_certificate_key /etc/nginx/certs/server.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # Security headers. (Headers set inside a location replace these, so none are set there.)
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header X-Cache-Status $upstream_cache_status always;
+    # Enable HSTS only once you use a real (trusted) certificate:
+    # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Liveness check answered by NGINX itself.
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Connection statistics, reachable only from this machine / Docker networks.
+    location = /nginx_status {
+        stub_status;
+        access_log off;
+        allow 127.0.0.1;
+        allow 10.0.0.0/8;
+        allow 172.16.0.0/12;
+        allow 192.168.0.0/16;
+        deny all;
+    }
+
+    location / {
+        limit_req zone=per_ip burst=20 nodelay;
+
+{{PROTOCOL_BLOCK}}
+    }
+}
